@@ -1,91 +1,78 @@
-VAE Curve Generation and Evaluation
-This project uses a Variational Autoencoder (VAE) to learn the features of 2D time-series curves (called phrases) from a dataset.
-It can generate new synthetic curves and evaluate their authenticity using:
+# VAE Curve Generation and Evaluation
 
-Dynamic Time Warping (DTW)
+This project uses a Variational Autoencoder (VAE) to learn the features of 2D time-series curves (also referred to as "phrases") from a dataset. It can then generate new, synthetic curves and evaluate their authenticity using Dynamic Time Warping (DTW) and an automatic segmentation strategy.
 
-Automated curve segmentation via Change Point Detection and Knee Locator.
+---
 
-📦 Requirements
-Install the required Python packages:
+## How to Run
 
-bash
-Copy
-Edit
-pip install torch numpy scikit-learn ruptures kneed fastdtw matplotlib
-📂 Data Setup
-Place your data file (e.g., 1R.txt) in the same directory as the script.
+1. Ensure you have the required Python dependencies:
+   ```bash
+   pip install torch numpy scikit-learn ruptures kneed fastdtw matplotlib
+   ```
+2. Place your data file (e.g., `1R.txt`) in the same directory as the script.
+3. Run the script from your terminal:
+   ```bash
+   python evaluate_curves.py
+   ```
 
-▶️ How to Run
-bash
-Copy
-Edit
-python evaluate_curves.py
-🧠 Evaluation Methodology
-The evaluation checks if a generated curve’s segments are statistically similar to reference phrases from the training data.
+---
 
-1. Curve Segmentation
-We automatically segment curves using:
+## Evaluation Methodology
 
-Change Point Detection (CPD)
+The authenticity of a generated curve is determined by comparing it to the ground truth "reference phrases" from the training data. The core idea is to check if the generated curve's segments are statistically similar to the corresponding segments of the reference curves.
 
-Uses ruptures.KernelCPD with an RBF kernel for detecting points where statistical properties change significantly.
+### How is the curve segmented?
 
-Captures complex, non-linear shifts in the curve’s behavior.
+Instead of using manual breakpoints, the script employs a two-part automated approach to find the most meaningful segments in a curve.
 
-Knee Locator (Elbow Method)
+#### 1. Change Point Detection (CPD)
+This technique automatically detects points in a sequence where the statistical properties change significantly.
+- The script uses `ruptures.KernelCPD` with a Radial Basis Function (`rbf`) kernel.
+- The RBF kernel is powerful because it can capture complex, **nonlinear changes** in the curve's behavior, making it ideal for more than just simple linear shifts.
 
-Finds the optimal number of breakpoints to avoid over/under-segmentation.
+#### 2. Knee Locator (Elbow Method)
+While CPD can find any number of change points, we need to select the *optimal* number. Adding too many breakpoints leads to "over-segmentation" with meaningless tiny segments.
+- The Knee Locator algorithm is used to find the "knee" or "elbow point" in the cost function of the change point detection.
+- This point represents the sweet spot where adding more breakpoints provides diminishing returns, thus preventing over- and under-segmentation.
 
-Prevents meaningless tiny segments.
-
-Function:
-
-python
-Copy
-Edit
+**Function Call:**
+```python
 segments = self._segment_curve_with_change_points(curve, max_bkps=10)
-2. Building the Benchmark
-We create a statistical benchmark from reference phrases:
+```
 
-Segment Reference Curves using the same CPD + Knee Locator method.
+---
 
-Compute DTW Distances for each segment index across all reference phrases.
+## Computing Allowed Variations (The Benchmark)
 
-Example: For segment #1, compute DTW between all phrase pairs’ segment #1.
+Before we can evaluate a new curve, we first need to build a statistical benchmark from the reference phrases.
 
-Calculate Statistics: Mean and variance of DTW distances per segment.
+- **Segment Reference Curves:** Every curve in the reference dataset is broken into segments using the Change Point Detection and Knee Locator method described above. This ensures all reference curves are segmented consistently.
+- **Calculate Segment-wise DTW Distances:** For each segment index (e.g., "segment 1", "segment 2", etc.), we calculate the DTW distance between every possible pair of corresponding segments from the reference phrases.
 
-Function:
+Example:  
+If there are 10 reference phrases, for segment #1, we compute the DTW distance between phrase 1's segment #1 and phrase 2's segment #1, phrase 1 and phrase 3, and so on, for a total of `(10 * 9) / 2 = 45` unique distances.
 
-python
-Copy
-Edit
+- **Compute Statistics:** From these distances, we calculate the mean distance and the variance for each segment group. This gives us a statistical profile of what a "normal" segment looks like.
+
+**Function Call:**
+```python
 evaluator.calculate_reference_stats()
-3. Evaluating a Generated Phrase
-Given a generated phrase G:
+```
 
-Segment G with the same CPD + Knee Locator method.
+---
 
-Compute Mean DTW for each segment against all corresponding reference segments.
+## Evaluating a Generated Phrase
 
-Check Allowed Range:
+Once the benchmark is established, evaluating a new generated phrase (let's call it `G`) is straightforward.
 
-A segment is valid if mean_distance is within mean ± 2 × std from the reference benchmark.
+1. **Segment the Generated Phrase:** `G` is segmented using the exact same CPD and Knee Locator approach.
+2. **Compute Mean DTW to References:** For each segment of `G`, we compute its DTW distance to the corresponding segment of all the reference phrases. We then take the average of these distances to get a single mean distance (`md`).
+3. **Check Against Benchmark:** For each segment, we check if its `md` falls within the allowed statistical range (e.g., within 2 standard deviations of the reference mean) calculated earlier.
+4. **Final Verdict:**  
+   - If the `md` for all segments of `G` falls within their allowed ranges, the phrase `G` is considered a good candidate.  
+   - If even one segment falls outside the range, it is flagged as not a good candidate.
 
-Final Verdict:
-
-If all segments pass → G is considered authentic.
-
-If any segment fails → G is flagged as not authentic.
-
-Function:
-
-python
-Copy
-Edit
+**Function Call:**
+```python
 is_good = evaluator.evaluate_curve_authenticity(generated_curve)
-📊 Summary
-✅ Automated Segmentation – No manual breakpoints needed.
-✅ Statistical DTW Benchmark – Measures similarity with variance tolerance.
-✅ One-Call Evaluation – Minimal code to check curve authenticity.
